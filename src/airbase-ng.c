@@ -250,6 +250,7 @@ struct options
 
     int f_essid;
     int promiscuous;
+    int append_open_response;
     int beacon_cache;
     int channel;
     int setWEP;
@@ -2581,6 +2582,8 @@ int store_wpa_handshake(struct ST_info *st_cur)
 
 int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int external)
 {
+    unsigned char *pcapa = NULL;
+    unsigned char capa0;
     unsigned char K[64];
     unsigned char bssid[6];
     unsigned char smac[6];
@@ -3108,6 +3111,7 @@ skip_probe:
                     packet[z+8] = (apc->interval) & 0xFF;       //beacon interval
                     packet[z+9] = (apc->interval >> 8) & 0xFF;
                     memcpy(packet+z+10, apc->capa, 2);          //capability
+                    pcapa = packet+z+10;
 
                     //set timestamp
                     gettimeofday( &tv1,  NULL );
@@ -3174,6 +3178,14 @@ skip_probe:
 						}
 					}
 
+                    if( (opt.wpa1type > 0 || opt.wpa2type > 0) && opt.append_open_response) {
+                        if(pcapa) {
+                            capa0 = *pcapa;
+                            *pcapa &= ~0x10;
+                            send_packet(packet, length-22);
+                            *pcapa = capa0;
+                        }
+                    }
                     send_packet(packet, length);
 
                     //send_packet(packet, length);
@@ -4134,7 +4146,7 @@ int main( int argc, char *argv[] )
         };
 
         int option = getopt_long( argc, argv,
-                        "a:h:i:C:I:r:w:HPe:E:c:d:D:f:W:qMY:b:B:XsS:Lx:vAz:Z:yV:0NF:n:",
+                        "a:h:i:C:I:r:w:HPOe:E:c:d:D:f:W:qMY:b:B:XsS:Lx:vAz:Z:yV:0NF:n:",
                         long_options, &option_index );
 
         if( option < 0 ) break;
@@ -4300,6 +4312,12 @@ int main( int argc, char *argv[] )
             case 'X' :
 
                 opt.hidden = 1;
+
+                break;
+
+            case 'O' :
+
+                opt.append_open_response = 1;
 
                 break;
 
