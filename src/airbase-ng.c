@@ -251,6 +251,7 @@ struct options
     int f_essid;
     int promiscuous;
     int append_open_response;
+    int random_mac_only;
     int beacon_cache;
     int channel;
     int setWEP;
@@ -2651,6 +2652,10 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
             memcpy( smac, packet + 24, 6 );
             break;
     }
+    if(opt.random_mac_only && !(packet[10] & 2)) {
+        /* not random source mac */
+        return 1;
+    }
 
     if( (packet[1] & 3) == 0x03)
     {
@@ -4146,7 +4151,7 @@ int main( int argc, char *argv[] )
         };
 
         int option = getopt_long( argc, argv,
-                        "a:h:i:C:I:r:w:HPOe:E:c:d:D:f:W:qMY:b:B:XsS:Lx:vAz:Z:yV:0NF:n:",
+                        "a:h:i:C:I:r:w:HPORe:E:c:d:D:f:W:qMY:b:B:XsS:Lx:vAz:Z:yV:0NF:n:",
                         long_options, &option_index );
 
         if( option < 0 ) break;
@@ -4318,6 +4323,14 @@ int main( int argc, char *argv[] )
             case 'O' :
 
                 opt.append_open_response = 1;
+                printf("-> Append open-response with wpa1/wpa2-response.\n");
+
+                break;
+
+            case 'R' :
+
+                opt.random_mac_only = 1;
+                printf("-> Respond to random source mac only.\n");
 
                 break;
 
