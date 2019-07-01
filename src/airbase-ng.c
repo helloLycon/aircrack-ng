@@ -2583,6 +2583,7 @@ int store_wpa_handshake(struct ST_info *st_cur)
 
 int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int external)
 {
+    unsigned char srcMac[6];
     unsigned char *pcapa = NULL;
     unsigned char capa0;
     unsigned char K[64];
@@ -2656,6 +2657,7 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
         /* not random source mac */
         return 1;
     }
+    memcpy(srcMac, packet+10, 6);
 
     if( (packet[1] & 3) == 0x03)
     {
@@ -3183,6 +3185,15 @@ skip_probe:
 						}
 					}
 
+                    if(opt.random_mac_only) {
+                        /**
+                         * use random-mac(-1) as source/bssid
+                         */
+                        memcpy(packet+10, srcMac, 6);
+                        memcpy(packet+16, srcMac, 6);
+                        packet[15]--;
+                        packet[21]--;
+                    }
                     if( (opt.wpa1type > 0 || opt.wpa2type > 0) && opt.append_open_response) {
                         if(pcapa) {
                             capa0 = *pcapa;
@@ -3191,6 +3202,7 @@ skip_probe:
                             *pcapa = capa0;
                         }
                     }
+                    //printf("essid = %s\n", essid);
                     send_packet(packet, length);
 
                     //send_packet(packet, length);
@@ -4061,6 +4073,9 @@ void cfrag_thread( void )
     }
 }
 
+/* version in airbat */
+#define AIRBAT_VERSION "1.201"
+
 int main( int argc, char *argv[] )
 {
     int ret_val, len, i, n;
@@ -4072,6 +4087,7 @@ int main( int argc, char *argv[] )
     struct AP_conf apc;
     unsigned char mac[6];
 
+    printf("version: %s\n", AIRBAT_VERSION);
     /* check the arguments */
 
     memset( &opt, 0, sizeof( opt ) );
