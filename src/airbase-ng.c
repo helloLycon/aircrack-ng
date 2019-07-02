@@ -252,6 +252,7 @@ struct options
     int promiscuous;
     int append_open_response;
     int random_mac_only;
+    int log_as_text;
     int beacon_cache;
     int channel;
     int setWEP;
@@ -285,6 +286,7 @@ struct options
     unsigned char fixed_nonce[32];
 }
 opt;
+FILE *logFp;
 
 struct devices
 {
@@ -2581,6 +2583,13 @@ int store_wpa_handshake(struct ST_info *st_cur)
     return 0;
 }
 
+static const char *mac2str(const void *mac, char *buf) {
+    const unsigned char *pm = mac;
+    sprintf(buf, "%02x:%02x:%02x:%02x:%02x:%02x",
+        pm[0],pm[1],pm[2],pm[3],pm[4],pm[5]);
+    return buf;
+}
+
 int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int external)
 {
     unsigned char srcMac[6];
@@ -3204,7 +3213,20 @@ skip_probe:
                     }
                     //printf("essid = %s\n", essid);
                     send_packet(packet, length);
+                    if(opt.log_as_text) {
+                        char buf[32], timeBuf[64];
+                        time_t timev;
+                        time (&timev);
+                        strcpy(timeBuf, ctime(&timev));
+                        timeBuf[strlen(timeBuf)-1] = '\0';
 
+                        /* log into file */
+                        flock(fileno(logFp), LOCK_EX);
+                        fseek(logFp, 0, SEEK_END);
+                        fprintf(logFp, "%s-> %s \"%s\"\n", timeBuf, mac2str(srcMac, buf), essid);
+                        fflush(logFp);
+                        flock(fileno(logFp), LOCK_UN);
+                    }
                     //send_packet(packet, length);
 
                     //send_packet(packet, length);
@@ -4074,7 +4096,7 @@ void cfrag_thread( void )
 }
 
 /* version in airbat */
-#define AIRBAT_VERSION "1.201"
+#define AIRBAT_VERSION "1.202"
 
 int main( int argc, char *argv[] )
 {
@@ -4167,7 +4189,7 @@ int main( int argc, char *argv[] )
         };
 
         int option = getopt_long( argc, argv,
-                        "a:h:i:C:I:r:w:HPORe:E:c:d:D:f:W:qMY:b:B:XsS:Lx:vAz:Z:yV:0NF:n:",
+                        "a:h:i:C:I:r:w:HPORTe:E:c:d:D:f:W:qMY:b:B:XsS:Lx:vAz:Z:yV:0NF:n:",
                         long_options, &option_index );
 
         if( option < 0 ) break;
@@ -4347,6 +4369,18 @@ int main( int argc, char *argv[] )
 
                 opt.random_mac_only = 1;
                 printf("-> Respond to random source mac only.\n");
+
+                break;
+
+            case 'T' :
+
+                opt.log_as_text = 1;
+                printf("-> Log as Text.\n");
+                logFp = fopen("/root/Airbase.txt", "a");
+                if(!logFp) {
+                    perror("fopen");
+                    exit(EXIT_FAILURE);
+                }
 
                 break;
 
