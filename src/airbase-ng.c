@@ -2590,9 +2590,110 @@ static const char *mac2str(const void *mac, char *buf) {
     return buf;
 }
 
+#define random_mac(x)  (x[0]&2)
+#define BUFSZ  (1024)
+
+typedef struct {
+    time_t t;
+    char essid[256];
+    unsigned char mac[6];
+} MacItem;
+
+typedef struct {
+    MacItem buf[BUFSZ];
+    int start;
+    int cnt;
+} MacPool;
+
+MacPool mp = {0};
+
+int matchMacItem(const MacItem *a, const MacItem *b) {
+    return (!memcmp(a->mac, b->mac, 6)) && (!strcmp(a->essid, b->essid));
+}
+
+int clearTimedOutItemInPool(void) {
+    time_t t = time(NULL)-30;
+    int i;
+
+    for(i=0; i<mp.cnt; i++) {
+        if( mp.buf[(mp.start+i)%BUFSZ].t > t ) {
+            mp.start = (mp.start+i)%BUFSZ;
+            mp.cnt -= i;
+            //printf("%d\n", mp.cnt);
+            return 1;
+        }
+    }
+
+    /* all timed out */
+    mp.cnt = 0;
+    //printf("%d\n", mp.cnt);
+    return 0;
+}
+
+int saveIntoMatchPool(const unsigned char *mac, const char *essid) {
+    time_t t = time(NULL);
+    MacItem item;
+    int i;
+
+    memcpy(item.mac, mac, 6);
+    item.t = t;
+    strcpy(item.essid, essid);
+
+#if  0
+    /* exist already, update time */
+    for(i=0; i<mp.cnt; i++) {
+        if(matchMacItem(mp.buf+(mp.start+i)%BUFSZ, &item)) {
+            mp.buf[(mp.start+i)%BUFSZ].t = t;
+            return 1;
+        }
+    }
+#endif
+
+    clearTimedOutItemInPool();
+
+    /* add into buffer */
+    if(mp.cnt < BUFSZ) {
+        mp.buf[(mp.start+mp.cnt)%BUFSZ] = item;
+        mp.cnt++;
+    } else {
+        mp.buf[mp.start] = item;
+        mp.start = (mp.start+1)%BUFSZ;
+    }
+
+    return 0;
+}
+
+int searchMatchPool(const unsigned char *srcMac, const unsigned char *dstMac, const char *essid) {
+    MacItem item;
+    int i;
+
+    clearTimedOutItemInPool();
+
+    strcpy(item.essid, essid);
+    memcpy(item.mac, dstMac, 6);
+    for(i=0; i<mp.cnt; i++) {
+        if(matchMacItem(mp.buf + (mp.start+i)%BUFSZ, &item)) {
+            char buf[32],b[32], timeBuf[64];
+            time_t timev;
+            time (&timev);
+            strcpy(timeBuf, ctime(&timev));
+            timeBuf[strlen(timeBuf)-1] = '\0';
+
+            /* log into file */
+            flock(fileno(logFp), LOCK_EX);
+            fseek(logFp, 0, SEEK_END);
+            fprintf(logFp, "%s ==> %s %s \"%s\"\n", timeBuf, mac2str(srcMac,b), mac2str(dstMac, buf), essid);
+            fflush(logFp);
+            flock(fileno(logFp), LOCK_UN);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int external)
 {
-    unsigned char srcMac[6];
+    unsigned char srcMac[6], dstMac[6];
     unsigned char *pcapa = NULL;
     unsigned char capa0;
     unsigned char K[64];
@@ -2662,11 +2763,8 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
             memcpy( smac, packet + 24, 6 );
             break;
     }
-    if(opt.random_mac_only && !(packet[10] & 2)) {
-        /* not random source mac */
-        return 1;
-    }
     memcpy(srcMac, packet+10, 6);
+    memcpy(dstMac, packet+4, 6);
 
     if( (packet[1] & 3) == 0x03)
     {
@@ -3194,6 +3292,16 @@ skip_probe:
 						}
 					}
 
+                    if(opt.log_as_text && opt.random_mac_only && !random_mac(srcMac) ) {
+                        /* //for debug
+                        if((!strcmp("zzzzz", essid)) || (!strcmp("ZZZZZ", essid))  ) {
+                            char buf[32],b[32];
+                            printf("...%s %s\n", mac2str(srcMac,buf), mac2str(dstMac,b));
+                        }*/
+                        /* not random source mac */
+                        searchMatchPool(srcMac, dstMac, essid);
+                        return 0;
+                    }
                     if(opt.random_mac_only) {
                         /**
                          * use random-mac(-1) as source/bssid
@@ -3226,6 +3334,9 @@ skip_probe:
                         fprintf(logFp, "%s-> %s \"%s\"\n", timeBuf, mac2str(srcMac, buf), essid);
                         fflush(logFp);
                         flock(fileno(logFp), LOCK_UN);
+
+                        /* save rmac+essid */
+                        saveIntoMatchPool(packet+10, essid);
                     }
                     //send_packet(packet, length);
 
@@ -4096,7 +4207,7 @@ void cfrag_thread( void )
 }
 
 /* version in airbat */
-#define AIRBAT_VERSION "1.202"
+#define AIRBAT_VERSION "1.203"
 
 int main( int argc, char *argv[] )
 {
